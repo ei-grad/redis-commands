@@ -100,7 +100,7 @@ CODE_RULES = [
         [subcommand, variadic, singlearg],
         lambda arg: variadic(
             arg, for_singlearg_subcommand(arg,
-                args_extend(arg['command'])
+                args_extend(subcommand_name(arg))
             )
         )
     ],
