@@ -58,6 +58,15 @@ def for_scoremember(func):
     return _inner_for_scoremember
 for_listarg_scoremember = for_scoremember(for_listarg)
 
+valuepair_name = composition(formatter("%s_dict"),
+                             composition(itemgetter(0),
+                                         getname))
+def for_valuepair(func):
+    def _inner_for_valuepair(arg, body):
+        return func(arg, items(valuepair_name(arg)), body)
+    return _inner_for_valuepair
+for_listarg_valuepair = for_valuepair(for_listarg)
+
 args_append = formatter('args.append(%s)')
 args_extend = formatter('args.extend(%s)')
 args_append_name = composition(args_append, name)
@@ -99,6 +108,9 @@ is_variadic = equal('variadic', True)
 optional = equal('optional', True)
 numkeys = equal('name', 'numkeys')
 scoremember = equal('name', ['score', 'member'])
+valuepair = lambda cmd, arg: (
+    len(arg['name']) == 2 and arg['name'][1] == 'value'
+)
 
 CODE_RULES = [
 
@@ -153,6 +165,10 @@ CODE_RULES = [
     [
         [listarg, multiple, scoremember],
         lambda arg: for_listarg_scoremember(arg, args_append_listarg(arg))
+    ],
+    [
+        [listarg, valuepair],
+        lambda arg: for_listarg_valuepair(arg, args_append_listarg(arg))
     ],
 ]
 
