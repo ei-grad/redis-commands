@@ -89,6 +89,21 @@ def if_subcommand(arg, body):
 def variadic(arg, body):
     return if_subcommand(arg, [args_append_subcommand(arg)] + body)
 
+len1list_name = composition(formatter('%ss'),
+                            composition(argname,
+                                        composition(itemgetter(0), getname)))
+
+
+append_if_string_else_extend = lambda arg: [
+    'if isinstance(%s, basestring):' % len1list_name(arg)
+] + indent_if([
+    args_append(len1list_name(arg))
+]) + [
+    'else:'
+] + indent_if([
+    args_extend(len1list_name(arg))
+])
+
 
 def has(field):
     return lambda cmd, arg: field in arg
@@ -111,6 +126,8 @@ scoremember = equal('name', ['score', 'member'])
 valuepair = lambda cmd, arg: (
     len(arg['name']) == 2 and arg['name'][1] == 'value'
 )
+def length(l):
+    return lambda cmd, arg: len(arg['name']) == l
 
 CODE_RULES = [
 
@@ -169,6 +186,10 @@ CODE_RULES = [
     [
         [listarg, valuepair],
         lambda arg: for_listarg_valuepair(arg, args_append_listarg(arg))
+    ],
+    [
+        [listarg, length(1)],
+        lambda arg: append_if_string_else_extend(arg)
     ],
 ]
 
