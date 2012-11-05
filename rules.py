@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+from operator import itemgetter
+from functools import partial
+
 
 def has(field):
     return lambda cmd, args: field in args
@@ -19,51 +22,69 @@ singlearg = isinst('name', basestring)
 variadic = equal('variadic', True)
 optional = equal('optional', True)
 
-argname = lambda x: x.lower().replace('-', '_').replace(':', '_')
+formatter = partial(partial, str.__mod__)
+mapper = partial(partial, map)
+indent = formatter('    %s')
+indent_if = mapper(indent)
+indent_for = indent_if
 
-indent = lambda i: '    %s' % i
-indent_for = lambda l: map(indent, l)
-indent_if = lambda l: map(indent, l)
+def argname(x):
+    return x.lower().replace('-', '_').replace(':', '_')
 
-name = lambda arg: argname(arg['name'])
-subcommand_name = lambda arg: argname(arg['command'])
+def composition(func1, func2):
+    def inner(*args, **kwargs):
+        return func1(func2(*args, **kwargs))
+    return inner
 
-for_loop = lambda iterator, collection, body: [
-    'for %s in %s:' % (iterator, collection)
-] + indent_for(body)
+argname_from = partial(composition, argname)
+getname = itemgetter('name')
+name = argname_from(getname)
+subcommand_name = argname_from(itemgetter('command'))
 
-join_listarg = lambda arg: ', '.join([argname(i) for i in arg['name']])
+getname_to = partial(composition, func2=getname)
 
-for_listarg = lambda arg, collection, body: for_loop(
-    join_listarg(arg), collection, body
-)
-for_singlearg = lambda arg, collection, body: for_loop(
-    name(arg), collection, body
-)
+def for_loop(iterator, collection, body):
+    return [
+        'for %s in %s:' % (iterator, collection)
+    ] + indent_for(body)
+
+joiner = partial(partial, str.join)
+join_listarg = composition(joiner(', '), getname_to(mapper(argname)))
+
+def for_listarg(arg, collection, body):
+    return for_loop(join_listarg(arg), collection, body)
+
+def for_singlearg(arg, collection, body):
+    return for_loop(name(arg), collection, body)
 
 def for_subcommand(func):
-    return lambda arg: func(arg, subcommand_name(arg))
+    def _inner_for_subcommmand(arg, body):
+        return func(arg, subcommand_name(arg), body)
+    return _inner_for_subcommmand
+
 for_listarg_subcommand = for_subcommand(for_listarg)
 for_singlearg_subcommand = for_subcommand(for_singlearg)
 
-args_append = lambda x: 'args.append(%s)' % argname(x)
-args_extend = lambda x: 'args.extend(%s)' % argname(x)
-args_append_subcommand = lambda arg: 'args.append("%s")' % arg['command']
-args_append_listarg = lambda arg: [args_append(i) for i in arg['name']]
 
-expand_listarg_subcommand = lambda arg: '%s = %s' % (
-    join_listarg(arg), subcommand_name(arg)
-)
+args_append = composition(formatter('args.append(%s)'), argname)
+args_extend = composition(formatter('args.extend(%s)'), argname)
+args_append_subcommand = composition(formatter('args.append("%s")'),
+                                     itemgetter('command'))
 
-if_passed = lambda var, body: [
-    'if len(%s):' % var
-] + indent_if(body)
-if_passed_subcommand = lambda arg, body: if_passed(
-    subcommand_name(arg), body
-)
-variadic = lambda arg, body: if_passed_subcommand(arg,
-    [args_append_subcommand(arg)] + body
-)
+args_append_listarg = getname_to(mapper(args_append))
+
+def expand_listarg_subcommand(arg):
+    return '%s = %s' % (join_listarg(arg), subcommand_name(arg))
+
+def if_len(var, body):
+    return ['if len(%s):' % var] + indent_if(body)
+
+def if_subcommand(arg, body):
+    return ['if %s:' % subcommand_name(arg)] + indent_if(body)
+
+def variadic(arg, body):
+    return if_subcommand(arg, [args_append_subcommand(arg)] + body)
+
 
 CODE_RULES = [
 
