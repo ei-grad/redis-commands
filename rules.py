@@ -86,6 +86,9 @@ def if_len(var, body):
 def if_subcommand(arg, body):
     return ['if %s:' % subcommand_name(arg)] + indent_if(body)
 
+def if_enum(arg, body):
+    return ['if %s:' % name(arg)] + indent_if(body)
+
 def variadic(arg, body):
     return if_subcommand(arg, [args_append_subcommand(arg)] + body)
 
@@ -165,7 +168,6 @@ CODE_RULES = [
             )
         )
     ],
-
     [
         [subcommand, optional, listarg],
         lambda arg: if_subcommand(
@@ -173,6 +175,15 @@ CODE_RULES = [
                 args_append_subcommand(arg),
                 expand_listarg_subcommand(arg),
             ] + args_append_listarg(arg)
+        )
+    ],
+    [
+        [subcommand, optional, singlearg],
+        lambda arg: if_subcommand(
+            arg, [
+                args_append_subcommand(arg),
+                args_append(subcommand_name(arg))
+            ]
         )
     ],
     [
@@ -191,6 +202,21 @@ CODE_RULES = [
         [listarg, length(1)],
         lambda arg: append_if_string_else_extend(arg)
     ],
+    [
+        [singlearg, multiple],
+        lambda arg: append_if_string_else_extend(arg)
+    ],
+    [
+        [singlearg, has('enum'),
+         (lambda cmd, arg: len(arg['enum']) == 1), optional],
+        lambda arg: if_enum(arg, [
+            args_append('"%s"' % arg['enum'][0])
+        ])
+    ],
+    [
+        [singlearg],
+        lambda arg: [args_append(name(arg))]
+    ]
 ]
 
 ARGS = {}
@@ -206,17 +232,13 @@ if __name__ == "__main__":
     fname = os.path.join(os.path.dirname(__file__), 'commands.json')
     commands = get_commands(fname)
     for cmd, params in sorted(commands.items()):
-        if 'arguments' in params:
-            for arg in params['arguments']:
-                for flt, action in CODE_RULES:
-                    if all(i(cmd, arg) for i in flt):
-                        sys.stdout.write('Code for %s:%s\n' % (cmd, arg))
-                        sys.stdout.write('\n'.join(action(arg)))
-                        sys.stdout.write('\n\n')
-                        break
-                else:
-                    pass
-                    #logging.error("no code rule for %s:%s", cmd, getname(arg))
-        else:
-            pass
-            #logging.error('no arguments for %s', cmd)
+        for arg in params.get('arguments', []):
+            for flt, action in CODE_RULES:
+                if all(i(cmd, arg) for i in flt):
+                    sys.stdout.write('Code for %s:%s\n' % (cmd, arg))
+                    sys.stdout.write('\n'.join(action(arg)))
+                    sys.stdout.write('\n\n')
+                    break
+            else:
+                pass
+                logging.error("no code rule for %s:%s", cmd, getname(arg))
