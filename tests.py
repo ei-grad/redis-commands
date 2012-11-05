@@ -37,18 +37,6 @@ def test_name():
     eq_(rules.name(N1), 'ip_port')
     eq_(rules.name(N2), 'serialized_value')
 
-def test_getname_to():
-
-    def f1(a):
-        eq_(a, 'ip:port')
-
-    rules.getname_to(f1)(N1)
-
-    def f2(a):
-        eq_(a, 'serialized-value')
-
-    rules.getname_to(f2)(N2)
-
 
 CMDARG = {'command': 'AGGREGATE'}
 
@@ -94,11 +82,11 @@ def test_for_singlearg_subcommand():
 
 
 def test_args_append():
-    eq_(rules.args_append('a-1'), 'args.append(a_1)')
+    eq_(rules.args_append('ip_port'), 'args.append(ip_port)')
 
 
 def test_args_extend():
-    eq_(rules.args_extend('a-1'), 'args.extend(a_1)')
+    eq_(rules.args_extend('ip_port'), 'args.extend(ip_port)')
 
 
 def test_args_append_subcommand():

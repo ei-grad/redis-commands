@@ -1,26 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-from operator import itemgetter
+import json
 from functools import partial
+from operator import itemgetter
+import os
+import sys
 
-
-def has(field):
-    return lambda cmd, args: field in args
-
-def equal(field, value):
-    return lambda cmd, args: args.get(field) == value
-
-def isinst(field, value):
-    return lambda cmd, args: isinstance(args.get(field), value)
-
-
-subcommand = has('command')
-multiple = equal('multiple', True)
-listarg = isinst('name', list)
-singlearg = isinst('name', basestring)
-variadic = equal('variadic', True)
-optional = equal('optional', True)
 
 formatter = partial(partial, str.__mod__)
 mapper = partial(partial, map)
@@ -41,15 +27,13 @@ getname = itemgetter('name')
 name = argname_from(getname)
 subcommand_name = argname_from(itemgetter('command'))
 
-getname_to = partial(composition, func2=getname)
-
 def for_loop(iterator, collection, body):
     return [
         'for %s in %s:' % (iterator, collection)
     ] + indent_for(body)
 
 joiner = partial(partial, str.join)
-join_listarg = composition(joiner(', '), getname_to(mapper(argname)))
+join_listarg = composition(joiner(', '), composition(mapper(argname), getname))
 
 def for_listarg(arg, collection, body):
     return for_loop(join_listarg(arg), collection, body)
@@ -65,13 +49,24 @@ def for_subcommand(func):
 for_listarg_subcommand = for_subcommand(for_listarg)
 for_singlearg_subcommand = for_subcommand(for_singlearg)
 
+scoremember_name = formatter('member_score_dict')
+items = formatter('%s.items()')
 
-args_append = composition(formatter('args.append(%s)'), argname)
-args_extend = composition(formatter('args.extend(%s)'), argname)
+def for_scoremember(func):
+    def _inner_for_scoremember(arg, body):
+        return func(arg, items(scoremember_name(arg)), body)
+    return _inner_for_scoremember
+for_listarg_scoremember = for_scoremember(for_listarg)
+
+args_append = formatter('args.append(%s)')
+args_extend = formatter('args.extend(%s)')
+args_append_name = composition(args_append, name)
 args_append_subcommand = composition(formatter('args.append("%s")'),
                                      itemgetter('command'))
 
-args_append_listarg = getname_to(mapper(args_append))
+args_append_listarg = composition(
+    mapper(composition(args_append, argname)), getname
+)
 
 def expand_listarg_subcommand(arg):
     return '%s = %s' % (join_listarg(arg), subcommand_name(arg))
@@ -85,6 +80,25 @@ def if_subcommand(arg, body):
 def variadic(arg, body):
     return if_subcommand(arg, [args_append_subcommand(arg)] + body)
 
+
+def has(field):
+    return lambda cmd, arg: field in arg
+
+def equal(field, value):
+    return lambda cmd, arg: arg.get(field) == value
+
+def isinst(field, value):
+    return lambda cmd, arg: isinstance(arg.get(field), value)
+
+
+subcommand = has('command')
+multiple = equal('multiple', True)
+listarg = isinst('name', list)
+singlearg = isinst('name', basestring)
+is_variadic = equal('variadic', True)
+optional = equal('optional', True)
+numkeys = equal('name', 'numkeys')
+scoremember = equal('name', ['score', 'member'])
 
 CODE_RULES = [
 
@@ -100,15 +114,12 @@ CODE_RULES = [
     [
         [subcommand, multiple, singlearg],
         lambda arg: for_singlearg_subcommand(
-            arg, [
-                args_append_subcommand(arg),
-                args_append(arg)
-            ]
+            arg, [args_append_subcommand(arg), args_append_name(arg)]
         )
     ],
 
     [
-        [subcommand, variadic, listarg],
+        [subcommand, is_variadic, listarg],
         lambda arg: variadic(
             arg, for_listarg_subcommand(
                 arg, args_append_listarg(arg)
@@ -118,10 +129,10 @@ CODE_RULES = [
 
 
     [
-        [subcommand, variadic, singlearg],
+        [subcommand, is_variadic, singlearg],
         lambda arg: variadic(
             arg, for_singlearg_subcommand(arg,
-                args_extend(subcommand_name(arg))
+                [args_extend(subcommand_name(arg))]
             )
         )
     ],
@@ -132,12 +143,43 @@ CODE_RULES = [
             arg, [
                 args_append_subcommand(arg),
                 expand_listarg_subcommand(arg),
-                args_append_listarg(arg)
-            ]
+            ] + args_append_listarg(arg)
         )
-    ]
+    ],
+    [
+        [numkeys],
+        lambda arg: [args_append('len(keys)')]
+    ],
+    [
+        [listarg, multiple, scoremember],
+        lambda arg: for_listarg_scoremember(arg, args_append_listarg(arg))
+    ],
 ]
 
 ARGS = {}
 CODE = {}
 DOCS = {}
+
+def get_commands(fname):
+    return json.load(open(fname))
+
+
+if __name__ == "__main__":
+    import logging
+    fname = os.path.join(os.path.dirname(__file__), 'commands.json')
+    commands = get_commands(fname)
+    for cmd, params in sorted(commands.items()):
+        if 'arguments' in params:
+            for arg in params['arguments']:
+                for flt, action in CODE_RULES:
+                    if all(i(cmd, arg) for i in flt):
+                        sys.stdout.write('Code for %s:%s\n' % (cmd, arg))
+                        sys.stdout.write('\n'.join(action(arg)))
+                        sys.stdout.write('\n\n')
+                        break
+                else:
+                    pass
+                    #logging.error("no code rule for %s:%s", cmd, getname(arg))
+        else:
+            pass
+            #logging.error('no arguments for %s', cmd)
