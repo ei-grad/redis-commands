@@ -122,7 +122,7 @@ GET = {"command": "GET",
        "optional": True,
        "multiple": True}
 
-def test_if_passed_subcommand():
+def test_if_subcommand():
     eq_(rules.if_subcommand(BY, ['print(by)']), [
         'if by:',
         '    print(by)'

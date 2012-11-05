@@ -128,7 +128,7 @@ CODE_RULES = [
 
     [
         [subcommand, optional, listarg],
-        lambda arg: if_passed_subcommand(
+        lambda arg: if_subcommand(
             arg, [
                 args_append_subcommand(arg),
                 expand_listarg_subcommand(arg),
