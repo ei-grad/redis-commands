@@ -13,6 +13,7 @@ formatter = partial(partial, str.__mod__)
 mapper = partial(partial, map)
 indent = mapper(formatter('    %s'))
 
+
 NAME_MAP = {
     'del': 'delete',
     'exec': 'execute'
@@ -25,67 +26,71 @@ def argname(x):
         x = NAME_MAP[x]
     return x
 
+
 def composition(func1, func2):
-    def inner(*args, **kwargs):
+    def composition_inner(*args, **kwargs):
         return func1(func2(*args, **kwargs))
-    return inner
+    return composition_inner
+
 
 argname_from = partial(composition, argname)
 getname = itemgetter('name')
 name = argname_from(getname)
 subcommand_name = argname_from(itemgetter('command'))
 
+
 def in_list(func):
     def in_list_inner(*args, **kwargs):
         return [func(*args, **kwargs)]
     return in_list_inner
 
-def for_loop(iterator, collection, body):
+
+def for_loop(itername, collection, body):
     return [
-        'for %s in %s:' % (iterator, collection)
+        'for %s in %s:' % (itername, collection)
     ] + indent(body)
+
 
 joiner = partial(partial, str.join)
 join_listarg = composition(joiner(', '), composition(mapper(argname), getname))
 
+
 def for_listarg(arg, collection, body):
     return for_loop(join_listarg(arg), collection, body)
+
 
 def for_singlearg(arg, collection, body):
     return for_loop(name(arg), collection, body)
 
-def for_subcommand(func):
-    def _inner_for_subcommmand(arg, body):
-        return func(arg, subcommand_name(arg), body)
-    return _inner_for_subcommmand
 
+def for_base(name_getter):
+    def for_inner(func):
+        def for_inner2(arg, body):
+            return func(arg, name_getter(arg), body)
+        return for_inner2
+    return for_inner
+
+for_subcommand = for_base(subcommand_name)
 for_listarg_subcommand = for_subcommand(for_listarg)
 for_singlearg_subcommand = for_subcommand(for_singlearg)
 
-items = formatter('%s.items()')
+joined_listarg_name = composition(joiner('_'), getname)
+valuepair_name = composition(formatter("%s_dict"), joined_listarg_name)
 
-def for_scoremember(func):
-    def _inner_for_scoremember(arg, body):
-        return func(arg, items('score_member_dict'), body)
-    return _inner_for_scoremember
+for_scoremember = for_base(valuepair_name)
 for_listarg_scoremember = for_scoremember(for_listarg)
 
-valuepair_name = composition(
-    formatter("%s_dict"),
-    composition(joiner('_'), getname)
-)
-
-def for_valuepair(func):
-    def _inner_for_valuepair(arg, body):
-        return func(arg, items(valuepair_name(arg)), body)
-    return _inner_for_valuepair
+items = formatter('%s.items()')
+for_valuepair = for_base(composition(items, valuepair_name))
 for_listarg_valuepair = for_valuepair(for_listarg)
 
 args_append = formatter('args.append(%s)')
 args_extend = formatter('args.extend(%s)')
 args_append_name = composition(args_append, name)
-args_append_subcommand = composition(formatter('args.append("%s")'),
-                                     itemgetter('command'))
+args_append_subcommand = composition(
+    formatter('args.append("%s")'),
+    itemgetter('command')
+)
 
 args_append_listarg = composition(
     mapper(composition(args_append, argname)),
@@ -93,8 +98,16 @@ args_append_listarg = composition(
 )
 
 
-def expand_listarg_subcommand(arg):
-    return '%s = %s' % (join_listarg(arg), subcommand_name(arg))
+def fzip(*funcs):
+    def fzip_inner(*args, **kwargs):
+        return tuple(i(*args, **kwargs) for i in funcs)
+    return fzip_inner
+
+
+expand_listarg_subcommand = composition(
+    formatter('%s = %s'),
+    fzip(join_listarg, subcommand_name)
+)
 
 
 def if_len(var, body):
@@ -191,7 +204,6 @@ len1list_name_in_list = in_list(len1list_name)
 
 
 RULES = [
-
     [
         [subcommand, multiple, listarg],
         lambda arg: for_listarg_subcommand(
@@ -201,7 +213,6 @@ RULES = [
         ),
         subcommand_name,
     ],
-
     [
         [subcommand, multiple, singlearg, optional],
         lambda arg: if_subcommand(arg, for_singlearg_subcommand(
@@ -209,7 +220,6 @@ RULES = [
         )),
         opt_subcommand_name_in_list,
     ],
-
     [
         [subcommand, multiple, singlearg],
         lambda arg: for_singlearg_subcommand(
@@ -217,7 +227,6 @@ RULES = [
         ),
         subcommand_name_in_list,
     ],
-
     [
         [subcommand, is_variadic, listarg],
         lambda arg: variadic(
@@ -227,15 +236,9 @@ RULES = [
         ),
         composition(add_eq_none_in_list, subcommand_name),
     ],
-
-
     [
         [subcommand, is_variadic, singlearg],
-        lambda arg: variadic(
-            arg, for_singlearg_subcommand(arg,
-                [args_extend(subcommand_name(arg))]
-            )
-        ),
+        lambda arg: variadic(arg, [args_extend(subcommand_name(arg))]),
         opt_subcommand_name_in_list,
     ],
     [
@@ -321,7 +324,7 @@ def main():
 
         args = ['self']
 
-        lines = ['    args = []']
+        lines = ['    args = ["%s"]' % cmd]
 
         for arg in params.get('arguments', []):
             try:
@@ -331,9 +334,12 @@ def main():
                         lines.extend(indent(code_action(arg)))
                         break
                 else:
-                    lines.append("# XXX: NO RULES FOR %s:%s", cmd, name(arg))
+                    lines.append("    # XXX: NO RULES FOR %s:%s" % (cmd, arg))
+                    logging.error('FAIL %s:%s', cmd, arg, exc_info=True)
             except:
-                lines.append('# XXX: FAIL %s:%s', cmd, argname(getname(arg)[0]), exc_info=True)
+                lines.append('    # XXX: FAIL %s:%s' % (cmd, arg))
+                logging.error('FAIL %s:%s', cmd, arg, exc_info=True)
+
         LINES.append('    def %s(%s, callback=None):' % (
             argname(cmd), ', '.join(args))
         )
